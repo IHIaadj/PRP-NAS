@@ -1,0 +1,9 @@
+[submodule "models/proxylessnas"]
+	path = models/proxylessnas
+	url = https://github.com/mit-han-lab/proxylessnas
+[submodule "models/NAS-Bench-201"]
+	path = models/NAS-Bench-201
+	url = https://github.com/D-X-Y/NAS-Bench-201
+[submodule "models/darts"]
+	path = models/darts
+	url = https://github.com/quark0/darts
