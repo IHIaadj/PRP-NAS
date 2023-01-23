@@ -23,6 +23,6 @@ CIFAR-10 is selected by default. For ImageNet just use *--data imagenet*.
 
 ## Results 
 <p float="left">
-  <img src="./images/pareto_imagenet.png" width="100" />
-  <img src="./images/pareto_cifar.png" width="100" /> 
+  <img src="./images/pareto_imagenet.png" width="300" />
+  <img src="./images/pareto_cifar.png" width="300" /> 
 </p>
