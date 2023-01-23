@@ -11,10 +11,10 @@ from torchvision import datasets, transforms
 import horovod.torch as hvd
 import tensorboardX
 from tqdm import tqdm
-
+from ..utils import * 
 import horovod.torch as hvd
 
-from models import Supernetwok 
+from pretrained_darts import NetworkCIFAR, NetworkImageNet
 
 model_names = ["201", "DARTS", "ProxylessNAS"]
 # Training settings
@@ -61,6 +61,20 @@ args = parser.parse_args()
 torch.manual_seed(args.seed)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+class CrossEntropyLabelSmooth(nn.Module):
+
+  def __init__(self, num_classes, epsilon):
+    super(CrossEntropyLabelSmooth, self).__init__()
+    self.num_classes = num_classes
+    self.epsilon = epsilon
+    self.logsoftmax = nn.LogSoftmax(dim=1)
+
+  def forward(self, inputs, targets):
+    log_probs = self.logsoftmax(inputs)
+    targets = torch.zeros_like(log_probs).scatter_(1, targets.unsqueeze(1), 1)
+    targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
+    loss = (-targets * log_probs).mean(0).sum()
+    return loss
 
 kwargs = {'num_workers': 5, 'pin_memory': True} if args.cuda else {}
 # Training transform
@@ -97,7 +111,7 @@ val_sampler = torch.utils.data.distributed.DistributedSampler(
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.val_batch_size,
                                          sampler=val_sampler, **kwargs)
 
-model = Supernetwok(model=args.arch, classes=args.num_classes).to(device)
+model = NetworkCIFAR(model=args.arch, classes=args.num_classes).to(device)
 optimizer = optim.SGD(model.parameters(), lr=args.base_lr * hvd.size(),
                       momentum=args.momentum, weight_decay=args.wd)
 
@@ -105,9 +119,13 @@ optimizer = optim.SGD(model.parameters(), lr=args.base_lr * hvd.size(),
 optimizer = hvd.DistributedOptimizer(optimizer,
                                      named_parameters=model.named_parameters())
 
-criterion = nn.CrossEntropyLoss().to(device)
-epochs = 200
-for epoch in range(epochs):  # loop over the dataset multiple times
+criterion = nn.CrossEntropyLabelSmooth().to(device) 
+criterion2 = compute_pr_metric()
+
+## PHASE 1: Training with Strict Fairness 
+
+epochs_p1 = 20 #PHASE 1 epochs 
+for epoch in range(epochs_p1):  # loop over the dataset multiple times
     running_loss = 0.0
     for i, data in enumerate(train_loader, 0):
         # get the inputs; data is a list of [inputs, labels]
@@ -117,10 +135,14 @@ for epoch in range(epochs):  # loop over the dataset multiple times
         optimizer.zero_grad()
 
         # forward + backward + optimize
-        outputs = model(inputs.to(device))
+        outputs, logits_aux = model(inputs.to(device))
         loss = criterion(outputs, labels.to(device))
         loss.backward()
         optimizer.step()
+        if args.auxiliary:
+            loss_aux = criterion(logits_aux, outputs)
+            loss += args.auxiliary_weight*loss_aux
+
 
         # print statistics
         running_loss += loss.item()
@@ -131,7 +153,7 @@ for epoch in range(epochs):  # loop over the dataset multiple times
     correct = 0
     total = 0
     with torch.no_grad():
-        for data in test_loader:
+        for data in val_loader:
             images, labels = data
             outputs = model(images.to(device))
             _, predicted = torch.max(outputs.data, 1)
@@ -142,4 +164,44 @@ for epoch in range(epochs):  # loop over the dataset multiple times
         100 * correct / total))
 
 acc=correct/total
+
+# Phase 2: Pareto-aware Training 
+epochs_p2 = 100
+for epoch in range(epochs_p2):  # loop over the dataset multiple times
+    running_loss = 0.0
+    for i, data in enumerate(train_loader, 0):
+        # get the inputs; data is a list of [inputs, labels]
+        inputs, labels = data
+
+        # zero the parameter gradients
+        optimizer.zero_grad()
+
+        # forward + backward + optimize
+        outputs = model(inputs.to(device))
+        loss = criterion(outputs, labels.to(device)) + criterion2(outputs, [outputs, labels.to(device)])
+        loss.backward()
+        optimizer.step()
+
+        model.prune() # Remove furthest from Pareto front
+
+        # print statistics
+        running_loss += loss.item()
+        if i % 200 == 199:    # print every 2000 mini-batches
+            print('[%d, %5d] loss: %.3f' %
+                    (epoch + 1, i + 1, running_loss / 2000))
+            running_loss = 0.0
+
+
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for data in val_loader:
+            images, labels = data
+            outputs = model(images.to(device))
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted.cpu() == labels).sum().item()
+
+    print('Accuracy of the network on the 10000 test images: %d %%' % (
+        100 * correct / total))
     

@@ -6,7 +6,6 @@ from proxylessnas.proxylessnas.model_zoo import proxyless_base
 
 types = ["201", "DARTS", "ProxylessNAS"]
 class Supernetwork(nn.Module):
-
     def _base(self, pretrained=True, net_config=None, net_weight=None):
         assert net_config is not None, "Please input a network config"
         net_config_path = download_url(net_config)
