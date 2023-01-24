@@ -6,6 +6,9 @@ We describe in this repository a methodology to train a supernetwork to accurate
 * The methodology is tested on several hardware platforms, including *Jetson Nano*, *Pixel 3*, *Raspberry Pi3* and *FPGA ZCU102*. We further show a way to deploy a small supernetwork (corresponding to the final Pareto approximation) to enhance battery life and energy consumption 
 * Our supernetwork weights are available in this link. 
 
+> :warning: this repository is under active development. This is not a stable version.
+
+
 ## How to use
 
 * **On a novel dataset:**
