@@ -14,7 +14,7 @@ from scipy.interpolate import Rbf
 
 from collections import OrderedDict
 
-from keys import *
+from training.keys import *
 ALPHA = 0.05 
 
 '''

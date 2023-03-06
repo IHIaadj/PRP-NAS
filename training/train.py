@@ -1,35 +1,29 @@
-import os, os.path as osp
-import math
-import argparse
 
-import torch.backends.cudnn as cudnn
+import numpy as np
+import argparse
+import os
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data.distributed
 from torchvision import datasets, transforms
-import horovod.torch as hvd
 import tensorboardX
-from tqdm import tqdm
-from ..utils import * 
-import horovod.torch as hvd
+import utils
 
 from pretrained_darts import NetworkCIFAR, NetworkImageNet
 
 model_names = ["201", "DARTS", "ProxylessNAS"]
 # Training settings
-parser = argparse.ArgumentParser(description='PyTorch ImageNet Example',
+parser = argparse.ArgumentParser(description='Pareto Training Example',
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-
-
-parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
+parser.add_argument('-a', '--arch', metavar='ARCH', default='DARTS',
                     choices=model_names,
                     help='model architecture: ' +
                         ' | '.join(model_names) +
-                        ' (default: resnet50)')
+                        ' (default: darts)')
 parser.add_argument('--num-classes', type=int, default=1000,
                     help='The number of classes in the dataset.')
-
+parser.add_argument("-e", '--epochs', type=int, default=150,
+                    help='number of epochs to train')
 parser.add_argument('--train-dir', default=os.path.expanduser('/ssd/dataset/imagenet/train'),
                     help='path to training data')
 parser.add_argument('--val-dir', default=os.path.expanduser('/ssd/dataset/imagenet/val'),
@@ -42,8 +36,7 @@ parser.add_argument('--batch-size', type=int, default=64,
                     help='input batch size for training')
 parser.add_argument('--val-batch-size', type=int, default=64,
                     help='input batch size for validation')
-parser.add_argument('--epochs', type=int, default=150,
-                    help='number of epochs to train')
+
 parser.add_argument('--base-lr', type=float, default=0.0125,
                     help='learning rate for a single GPU')
 parser.add_argument('--warmup-epochs', type=float, default=5,
@@ -56,6 +49,8 @@ parser.add_argument('--seed', type=int, default=42,
                     help='random seed')
 parser.add_argument('--lr-scheduler', type=str, default="cosine", choices=["linear", "cosine"],
                     help='how to schedule learning rate')
+parser.add_argument('--color_jitter', type=bool, default="True",
+                    help='Apply color jitter')
 
 args = parser.parse_args()
 torch.manual_seed(args.seed)
@@ -76,7 +71,7 @@ class CrossEntropyLabelSmooth(nn.Module):
     loss = (-targets * log_probs).mean(0).sum()
     return loss
 
-kwargs = {'num_workers': 5, 'pin_memory': True} if args.cuda else {}
+kwargs = {'num_workers': 5, 'pin_memory': True} if device == "cuda" else {}
 # Training transform
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 pre_process = [
@@ -111,7 +106,10 @@ val_sampler = torch.utils.data.distributed.DistributedSampler(
 val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.val_batch_size,
                                          sampler=val_sampler, **kwargs)
 
-model = NetworkCIFAR(model=args.arch, classes=args.num_classes).to(device)
+if args.arch == "201":
+    model = NetworkCIFAR(model=args.arch, classes=args.num_classes).to(device)
+else:
+    model = NetworkImageNet(model=args.arch, classes=args.num_classes).to(device)
 optimizer = optim.SGD(model.parameters(), lr=args.base_lr * hvd.size(),
                       momentum=args.momentum, weight_decay=args.wd)
 
@@ -120,7 +118,7 @@ optimizer = hvd.DistributedOptimizer(optimizer,
                                      named_parameters=model.named_parameters())
 
 criterion = nn.CrossEntropyLabelSmooth().to(device) 
-criterion2 = compute_pr_metric()
+criterion2 = utils.compute_pr_metric()
 
 ## PHASE 1: Training with Strict Fairness 
 
