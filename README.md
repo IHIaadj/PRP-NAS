@@ -16,13 +16,13 @@ We describe in this repository a methodology to train a supernetwork to accurate
     2. Execute the script *build_dataset.sh* which will generate specific batches with Pareto fronts. (This may take few minutes)
     3. run *train.py* with a selected *architecture* from the search spaces and a specific number of epochs. 
 
-``` python train.py --arch 201 --epochs 10 --data ./data ```
+``` python training/train.py --arch 201 --epochs 10 --data ./data ```
 
 * **On CIFAR-10/ImageNet:** 
 
-CIFAR-10 is selected by default. For ImageNet just use *--data imagenet*. 
+ImageNet is selected by default. For CIFAR10 just use *--data cifar10*. 
 
-``` python train.py --arch 201 --epochs 10```
+``` python training/train.py --arch darts --epochs 10```
 
 ## Results 
 <p float="left">
